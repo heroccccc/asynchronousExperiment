@@ -14,7 +14,6 @@ import numpy
 import time
 import pyaudio
 import wave
-import time
 
 class PlayAudio(threading.Thread):
 
@@ -28,8 +27,6 @@ class PlayAudio(threading.Thread):
         self.loadAudio()
 
         data = self.wr.readframes(self.CHUNK)
-
-        starttime = time.time()
 
         while data != b'':
             if self.stop_event.is_set():
@@ -47,7 +44,7 @@ class PlayAudio(threading.Thread):
 
         self.CHUNK = 1024
 
-        FILENAME ="video/" + str(self.num) + ".wav"
+        FILENAME =str(self.num) + ".wav"
 
         self.wr = wave.open(FILENAME,"rb")
 
@@ -70,15 +67,14 @@ class LoadVideo(threading.Thread):
 
         global change
         ptr = 0
-        self.numList = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
         self.video_list = []
         self.cap_list = []
         global framecount_list
         framecount_list = []
         self.framerate_list = []
-        for i in range(1,4):
-            name = "video/" + str(i) + ".mp4"
+        for i in range(1,17):
+            name = str(i) + ".mp4"
             self.video_list.append(name)
             self.cap_list.append(cv2.VideoCapture(self.video_list[i-1]))
             framecount_list.append(int(self.cap_list[i-1].get(7)))
@@ -91,27 +87,32 @@ class LoadVideo(threading.Thread):
 
             for i in range(framecount_list[0]):
 
-                while self.frameQueue.qsize() > 150:
-                    if self.stop_event.is_set() or change in self.numList:
+                while self.frameQueue.qsize() > 60:
+                    if self.stop_event.is_set():
+                        #2秒分キューに入れる　buffer
                         print("main break")
                         break
                     time.sleep(0.3)
 
-                is_read, frame = self.cap_list[0].read()
+                if change > 0:
+                    print("break2")
+                    break
 
+                is_read, frame = self.cap_list[0].read()
                 self.frameQueue.put(frame)
 
             self.cap_list[0].release()
             self.cap_list[0] = cv2.VideoCapture(self.video_list[0])
             print("main:finish")
 
-            if change in self.numList:
+            if change > 0:
                 ptr = change
                 change = 0
-
+                print( str(ptr+1) + ":start")
                 for i in range(framecount_list[ptr]):
 
-                    while self.frameQueue.qsize() > 150:
+                    while self.frameQueue.qsize() > 60:
+                        #2秒分キューに入れる　buffer
                         if self.stop_event.is_set():
                             break
                         time.sleep(0.3)
@@ -148,9 +149,7 @@ class Window(QMainWindow):
         change = 0
         self.next = 0
 
-        self.numList = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-        self.keyDic = {Qt.Key_Q:1, Qt.Key_W:2}
-
+        self.keyList = [Qt.Key_1,Qt.Key_2,Qt.Key_3,Qt.Key_4,Qt.Key_Q,Qt.Key_A,Qt.Key_S,Qt.Key_W,Qt.Key_D,Qt.Key_E,Qt.Key_5,Qt.Key_6,Qt.Key_7,Qt.Key_8,Qt.Key_9]
         self.qTimer = QTimer(self)
         self.qTimer.setTimerType(Qt.PreciseTimer)
         self.qTimer.timeout.connect(self.showImage)
@@ -161,17 +160,17 @@ class Window(QMainWindow):
         self.stop_thread = threading.Event()
         th = LoadVideo(self.frameQueue, self.stop_thread)
         th.start()
-        self.starttime = time.time()
 
         tha = PlayAudio(1, self.stop_thread)
         tha.start()
 
     def showImage(self):
 
-        if change in numList:
+        if change > 0:
             #ビデオが変更された時、その時まで入っていたキューを空にする
-            self.next = self.change
+            self.next = change
             while not self.frameQueue.empty():
+                print(self.frameQueue.qsize())
                 self.frameQueue.get()
 
         if not self.frameQueue.empty():
@@ -181,14 +180,14 @@ class Window(QMainWindow):
                 tha.start()
                 self.count=0
 
-            elif self.count in framecount_list and self.next == framecount_list[self.count]:
+            elif self.count in framecount_list and self.next == framecount_list.index(self.count):
                 #指定された動画の総フレーム数に、現在の合計フレーム数が達し、かつその時の選択した動画であるか確認し、カウントを0にする
                 #elif self.count == framecountlist[1] and self.next == 1 etc...
                 self.count = 0
 
-            if self.next in self.numList:
+            if self.next > 0:
                 #音声再生
-                tha = PlayAudio(self.next, self.stop_thread)
+                tha = PlayAudio(self.next+1, self.stop_thread)
                 tha.start()
                 self.next = 0
 
@@ -199,8 +198,6 @@ class Window(QMainWindow):
             height, width, channel = self.image.shape
             self.image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
             self.imageLabel.setPixmap(QPixmap.fromImage(QImage(self.image, width, height, QImage.Format_RGB888)))
-        else:
-            print("Nothing")
 
 
     def keyPressEvent(self, event):
@@ -211,9 +208,9 @@ class Window(QMainWindow):
             self.stop_thread.set()
             self.close()
 
-        elif event.key() in self.keyDic.keys():
+        elif event.key() in self.keyList:
             #動画の変更
-            change = self.keyDic[event.key()]
+            change = self.keyList.index(event.key())+1
             print("change:" + str(change))
 
 
