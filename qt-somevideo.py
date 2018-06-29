@@ -17,6 +17,9 @@ import wave
 #指定されたビデオの音声を再生
 class PlayAudio(threading.Thread):
 
+    global change
+
+
     def __init__(self,i,stop_event):
         threading.Thread.__init__(self)
         self.num = i
@@ -29,8 +32,13 @@ class PlayAudio(threading.Thread):
         data = self.wr.readframes(self.CHUNK)
 
         while data != b'':
+            #最初の基本ビデオの音声が終了した時、基本ビデオの音声も終了させる
+            if change > 0:
+                break
+
             if self.stop_event.is_set():
                 break
+
 
             self.stream.write(data)
             data = self.wr.readframes(self.CHUNK)
@@ -43,8 +51,8 @@ class PlayAudio(threading.Thread):
     def loadAudio(self):
 
         self.CHUNK = 1024
-
-        FILENAME =str(self.num) + ".wav"
+        #ファイル名を変更してください(これは、1.wavなど)
+        FILENAME = "video/" + str(self.num) + ".wav"
 
         self.wr = wave.open(FILENAME,"rb")
 
@@ -79,7 +87,8 @@ class LoadVideo(threading.Thread):
 
         #ここで表示させるビデオを全て変数として準備する、今回は3つのビデオなのでrange(1,4)にした
         for i in range(1,4):
-            name = str(i) + ".mp4"
+            #ファイル名を変更してください(これは、1.mp4など)
+            name = "video/" + str(i) + ".mp4"
             self.video_list.append(name)
             self.cap_list.append(cv2.VideoCapture(self.video_list[i-1]))
             framecount_list.append(int(self.cap_list[i-1].get(7)))
@@ -144,10 +153,12 @@ class Window(QMainWindow):
         self.imageLabel = QLabel()
 
         btn = QPushButton("play", self)
+        btn2 = QPushButton("end", self)
 
         layout = QVBoxLayout()
         layout.addWidget(self.imageLabel)
         layout.addWidget(btn)
+        layout.addWidget(btn2)
 
         wid = QWidget(self)
         wid.setLayout(layout)
@@ -155,6 +166,7 @@ class Window(QMainWindow):
 
         #playボタンを押されたら
         btn.clicked.connect(self.createVideoLoader)
+        btn2.clicked.connect(self.endApp)
 
         #表示される動画のフレーム数をカウント変数
         self.count=0
@@ -166,8 +178,11 @@ class Window(QMainWindow):
         global change
         change = 0
 
+        #ビデオを切り替える際に、音声も切り替えるための変数
+        self.changeSound = 0
+
         #キー操作で動画の切り替えを行うための、キーリスト(切り替わるビデオを3つ用意)
-        self.keyList = [Qt.Key_1,Qt.Key_2,Qt.Key_3]
+        self.keyList = [Qt.Key_1,Qt.Key_2]
 
         #33msごとにshowimageが呼ばれる(30fpsのビデオから1枚を表示する33msとした)
         self.qTimer = QTimer(self)
@@ -190,6 +205,7 @@ class Window(QMainWindow):
 
         #ビデオが変更された時
         if change > 0:
+            self.changeSound = change
             #その時まで入っていたキューを空にする、バッファの中を0にする
             #その時切り替わったビデオのindex番号を保持
             self.next = change
@@ -199,27 +215,39 @@ class Window(QMainWindow):
 
         #キュー、バッファを空ではない時
         if not self.frameQueue.empty():
+
+            #表示される動画のフレーム数を計算
+            self.count+=1
+
             #最初に指定したビデオの再生が切り替えを行われずに、ビデオが終了した場合、もう一度基本ビデオを再生する
             if self.count == framecount_list[0] and self.next == 0:
                 tha = PlayAudio(1, self.stop_thread)
                 tha.start()
                 self.count=0
+
+
             #切り替わった後のビデオが終了した場合、そのカウントを0にする
-            elif self.count in framecount_list and self.next == framecount_list.index(self.count):
+            #self.next in [i for i,v in enumerate(framecount_list) if v == self.count]は、切り替わった後のビデオのindex番号と等しいかどうかみている
+            #右側をself.next == framecount_list.index(self.count):でもいいが、これだと切り替わるビデオの中に同じフレーム数が存在するとバグが起きてしまう
+            elif self.count in framecount_list and self.next in [i for i,v in enumerate(framecount_list) if v == self.count]:
+                [i for i,v in enumerate(framecount_list) if v == self.count]
+                tha = PlayAudio(1, self.stop_thread)
+                tha.start()
                 self.count = 0
+                self.next = 0
 
             '''
             キーの切り替わりが行われ、次のビデオが再生される前に、すぐにバッファーにその次のビデオのフレームがキューに保存され、
             その保存されたビデオの音声をnextのビデオindex番号から再生させる
+            self.changeSound > 0でビデオが切り替わり、その切り替わった後の音声を一度だけ再生させることができる
             '''
-            if self.next > 0:
+            if self.next > 0 and self.changeSound > 0:
                 #音声再生
                 tha = PlayAudio(self.next+1, self.stop_thread)
                 tha.start()
-                self.next = 0
+                self.count=0
+                self.changeSound = 0
 
-            #表示される動画のフレーム数を計算
-            self.count+=1
 
             #LoadVideoで保存されたフレームを取得し、画面上に表示させる
             self.image = self.frameQueue.get()
@@ -242,6 +270,20 @@ class Window(QMainWindow):
             change = self.keyList.index(event.key())+1
             print("change:" + str(change))
 
+    #×ボタンで終了イベント
+    def closeEvent(self,event):
+
+        self.stop_thread.set()
+
+        event.accept()
+
+    #endボタンで終了イベント
+    def endApp(self):
+
+        self.stop_thread.set()
+
+        self.close()
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
@@ -252,7 +294,7 @@ if __name__ == '__main__':
     height = screen.height()
     width = screen.width()
 
-    #スクリーンいっぱいに表示
+    #スクリーンいっぱいに表示 調節してください　
     player.resize(width,height)
     player.show()
 
