@@ -294,8 +294,9 @@ if __name__ == '__main__':
     height = screen.height()
     width = screen.width()
 
-    #スクリーンいっぱいに表示 調節してください　
-    player.resize(width,height)
+    #スクリーンいっぱいに表示
+    #調節してください　
+    player.resize(700,600)
     player.show()
 
     sys.exit(app.exec_())
